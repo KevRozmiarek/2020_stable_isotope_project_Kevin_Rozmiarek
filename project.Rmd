@@ -2,35 +2,132 @@
 title: "R Notebook"
 output: html_notebook
 ---
-Test
+```{r}
+library(tidyverse)
+library(ReacTran)
+require(deSolve)
+```
+
+
+
+Remember from the paper:
+
+$$
+\delta^*(z=0,t) = A^* + B^*sin(\frac{2\pi t}{T_{day}}+ C^*)
+$$
+
 
 ```{r}
-library(ReacTran)
-Grid <- setup.grid.1D(N = 1000, L = 10)
+diurnal_isotope <- function(A, B, C, t) {
+   isotope <- A + B*sin((2*pi*t)/24 + C)
+   return(isotope)
+}
+```
+
+Let's visualize what that looks like real quick.
+
+```{r}
+isotope_model_data <- tibble(time = seq(from = 0, to = 24, by = 0.1), snow_value = diurnal_isotope(-45, 3.3, 0, time), air_value = diurnal_isotope(-45, 10, 4, time))
+
+isotope_model_data %>%
+    ggplot(aes(x = time, y = snow_value)) +
+    geom_line()
+```
+
+
+```{r}
+Grid <- setup.grid.1D(N = 10000, L = 0.01)
 
 pde1D <-function(t, C, parms) {
   tran <- tran.1D(C = C, D = D,
-  C.down = Cext, dx = Grid)$dC
-  list(tran - Q) # return value: rate of change
+  C.down = Cdown, C.up = Cup, dx = Grid)$dC
+  list(tran) # return value: rate of change
 }
 
-D <- 1 # diffusion constant
-Q <- 1 # uptake rate
-Cext <- 20
+D <- 0.00000009723 # diffusion constant
+Cdown <- -47.2
+Cup <- -41.6
+Cave <- (Cdown + Cup) / 2
+diff_time <- 120
 
-require(deSolve)
-times <- seq(0, 100, by = 1)
+times <- seq(0, diff_time, by = 1)
 system.time(
-out <- ode.1D(y = rep(1, Grid$N),
+out <- ode.1D(y = rep(Cave, Grid$N),
 times = times, func = pde1D,
 parms = NULL, nspec = 1)
 )
 
+tail(out[, 1:10], n = 10)
+
 ```
 
 ```{r}
-image(out, xlab = "time, days",
-ylab = "Distance, cm",
+sss_temp <- out[121,]
+steady_state_solution <- sss_temp[-1]
+image(out, xlab = "time, sec",
+ylab = "Distance, m",
 main = "PDE", add.contour = TRUE)
 ```
+
+```{r}
+isotope_vapor_diff = function(starting_values, snow_value, atmos_value) {
+  if(is.list(starting_values)){
+    starting_values <- unlist(starting_values)
+  }
+  
+  D <- 0.00000009723 # diffusion constant
+  Cdown <- snow_value
+  Cup <- atmos_value
+  diff_time <- 200
+
+  
+  Grid <- setup.grid.1D(N = 10000, L = 0.01)
+
+  pde1D <-function(t, C, parms) {
+    tran <- tran.1D(C = C, D = D,
+    C.down = Cdown, C.up = Cup, dx = Grid)$dC
+    list(tran) # return value: rate of change
+    }
+
+
+  times <- seq(0, diff_time, by = 1)
+  out <- ode.1D(y = starting_values,
+    times = times, func = pde1D,
+    parms = NULL, nspec = 1)
+
+  sss_temp <- out[121,]
+  steady_state_solution <- list(sss_temp[-1])
+  return(steady_state_solution)
+}
+```
+
+```{r}
+func_test <- isotope_vapor_diff(steady_state_solution, -45, -40)
+```
+
+```{r}
+#image(func_test, xlab = "time, sec",
+#ylab = "Distance, m",
+#main = "PDE", add.contour = TRUE)
+```
+```{r}
+isotope_model_data <- isotope_model_data %>%
+  add_column(isotope_space = NA)
+isotope_model_data$isotope_space[1] = list(steady_state_solution)
+isotope_model_data
+```
+```{r}
+interator = length(isotope_model_data$isotope_space) - 1
+system.time(
+for (i in 1:interator) {
+  isotope_model_data$isotope_space[i+1] = isotope_vapor_diff(isotope_model_data$isotope_space[i], isotope_model_data$snow_value[i], isotope_model_data$air_value[i])
+}
+)
+```
+```{r}
+length(unlist(isotope_model_data$isotope_space[241]))
+temp <- out[20,]
+plot(seq(1,10000), temp[-1])
+```
+
 
