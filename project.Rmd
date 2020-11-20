@@ -107,8 +107,8 @@ func_test <- isotope_vapor_diff(steady_state_solution, -45, -40)
 
 ```{r}
 #image(func_test, xlab = "time, sec",
-#ylab = "Distance, m",
-#main = "PDE", add.contour = TRUE)
+#ylab = "Distance",
+#main = "VSL Isotope Diffusion", add.contour = TRUE)
 ```
 ```{r}
 isotope_model_data <- isotope_model_data %>%
