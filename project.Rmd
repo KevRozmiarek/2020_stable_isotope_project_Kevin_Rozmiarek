@@ -8,11 +8,7 @@ library(ReacTran)
 require(deSolve)
 ```
 
-<<<<<<< HEAD
 test
-=======
-
->>>>>>> 7faadd5361ebf7a1ab08752fc85295818eab8225
 
 Remember from the paper:
 
