@@ -1,21 +1,32 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Madsen et al. lesson"
+author: Kevin Rozmiarek
+
+output:
+  pdf_document: default
+  fig_width: 12 
+  fig_height: 8 
 ---
-```{r}
+```{r, message=FALSE, echo=FALSE, warning=FALSE}
 library(tidyverse)
 library(ReacTran)
 require(deSolve)
 ```
 
-test
+Woah! Welcome back to having to think after the collective food coma of the Thanksgiving break! Remember the good times we had talking about how the atmospheric signal of water vapor got incoded into the ice sheet? If you don't, here is a quick reminder:
 
-Remember from the paper:
+![A little reminder of where we are in the system.](madsen_tower.PNG)
+
+We are in this "viscous sublayer" or VSL (also called the laminar layer in the Craig-Gordon model). In this layer, transport of different isotopes is entirely diffusion! In these exercises we are going to explore what the means for the top of the ice sheet (or "firn"). More concisely, we are going to use a toy diffusion model to see the effect that the VSL's thickness has on what the firn "sees" from the atmosphere. From the paper:
+
+*“A positive linear relation between B_best and delta_z is expected since the influence of the bottom boundary condition is more attenuated for a thicker VSL.”*
+
+What the hell is B_best anyways? Well we have snow measurements and atmospheric measurements but it's hard to make a measurement **AT** the snow surface. Madsen et al. assume that there is some dirunal variation B, a mean value A, and phase offset C and fit to that in their model. In the end, the value at the snow surface will look something like this:
 
 $$
 \delta^*(z=0,t) = A^* + B^*sin(\frac{2\pi t}{T_{day}}+ C^*)
 $$
-
+**Exercise 1:** Go ahead and make a function called "dirurnal_isotope" as a function of A, B, C, and t. Then lets do a sanity check by plotting it in a tibble called "isotope_model_data". Go ahead and use the values from the 26th-29th of June from the paper for $$\delta^{18}O$$ which so happens to be $$A_{best} = -43.9, B_{best} = 3.3, C_{best} = 14.4$$. 
 
 ```{r}
 diurnal_isotope <- function(A, B, C, t) {
@@ -24,50 +35,59 @@ diurnal_isotope <- function(A, B, C, t) {
 }
 ```
 
-Let's visualize what that looks like real quick.
+Here is the plot.
 
-```{r}
-isotope_model_data <- tibble(time = seq(from = 0, to = 24, by = 0.1), snow_value = diurnal_isotope(-45, 3.3, 0, time), air_value = diurnal_isotope(-45, 10, 4, time))
+```{r, fig.width=10, fig.height=5, dpi=600}
+isotope_model_data <- tibble(time = seq(from = 0, to = 24, by = 1), snow_value = diurnal_isotope(-43.9, 3.3, 14.4, time), air_value = diurnal_isotope(-45, 10, 14.0, time))
 
 isotope_model_data %>%
     ggplot(aes(x = time, y = snow_value)) +
-    geom_line()
+    geom_line(lwd = 1) + 
+    theme(text = element_text(size = 20))
 ```
+Differential equations in R isn't crazy mature, though it has some great basic packages that will help us get pretty close. We are going to solve the diffusion equation in 1D with the help of ReacTran (which will give us an equation) and deSolve (which will do our solving). We will get a steady state solution at each time step, go much more forward in time and solve again with the new atmoshperic boundary conditions. The very first thing to do is get comfortable with solving the diffusion equation and inform our model spin-up time.
 
+**Note:** We are ignoring the advection term here. Though Madesen et al. includes it, it is pretty damn complicated and outside the scope of these exercises.
 
 ```{r}
+# Lets make a grid in the spatial dimensions. This will represent a VSL of 0.1 m
 Grid <- setup.grid.1D(N = 10000, L = 0.01)
 
+# The function for solving
 pde1D <-function(t, C, parms) {
   tran <- tran.1D(C = C, D = D,
   C.down = Cdown, C.up = Cup, dx = Grid)$dC
   list(tran) # return value: rate of change
 }
 
-D <- 0.00000009723 # diffusion constant
-Cdown <- -47.2
-Cup <- -41.6
-Cave <- (Cdown + Cup) / 2
-diff_time <- 120
+D <- 0.00000009723 # diffusion constant for 18O in 0.1m/sec
+Cdown <- diurnal_isotope(-43.9, 3.3, 14.4, 0) #snow value
+Cup <- diurnal_isotope(-45, 10, 14.4, 0) #air value
+Cave <- (Cdown + Cup) / 2 # we need an inital condition somehow, lets do the average
+diff_time <- 180 #number of time steps in units of what our diffusion constant is in time
 
-times <- seq(0, diff_time, by = 1)
+times <- seq(0, diff_time, by = 1) #make time array
 system.time(
-out <- ode.1D(y = rep(Cave, Grid$N),
-times = times, func = pde1D,
-parms = NULL, nspec = 1)
+  out <- ode.1D(y = rep(Cave, Grid$N),
+  times = times, func = pde1D,
+  parms = NULL, nspec = 1)
 )
 
-tail(out[, 1:10], n = 10)
+tail(out[, 1:10], n = 10) #sample the out file from the solver
 
 ```
+
+Let's take the solution and plot it. Also we'll make sure to take the last time file as our future $$t = 0$$ boundary condition and call it steady_state_solution. 
 
 ```{r}
 sss_temp <- out[121,]
 steady_state_solution <- sss_temp[-1]
 image(out, xlab = "time, sec",
-ylab = "Distance, m",
-main = "PDE", add.contour = TRUE)
+  ylab = "Distance, m",
+  main = "delta 18O at the start", add.contour = TRUE)
 ```
+
+To do this at each time step we'll pack this into one big function, "isotope_vapor_diff". We just care about the end values so that's the output. For the data book-keeping, tibbles can't hold multi-dimenional data at a point unless it is a list. I have packed away the output as a list and unpacked it from the "starting_values" input variable.
 
 ```{r}
 isotope_vapor_diff = function(starting_values, snow_value, atmos_value) {
@@ -78,7 +98,7 @@ isotope_vapor_diff = function(starting_values, snow_value, atmos_value) {
   D <- 0.00000009723 # diffusion constant
   Cdown <- snow_value
   Cup <- atmos_value
-  diff_time <- 200
+  diff_time <- 600
 
   
   Grid <- setup.grid.1D(N = 10000, L = 0.01)
@@ -101,21 +121,26 @@ isotope_vapor_diff = function(starting_values, snow_value, atmos_value) {
 }
 ```
 
-```{r}
-func_test <- isotope_vapor_diff(steady_state_solution, -45, -40)
-```
+**Exercise 2:** Use this fancy new function to explore how the VSL would look in three minutes if you changed the surface snow value and air value from our previous steady state solution to two new values. Plot your results.
+
+**Note:** Remember that the function returns a list. You can unpack that bad boy with a statement that looks like "unlist(your_list_here)".
 
 ```{r}
-#image(func_test, xlab = "time, sec",
-#ylab = "Distance",
-#main = "VSL Isotope Diffusion", add.contour = TRUE)
+func_test <- isotope_vapor_diff(steady_state_solution, -45, -40)
+plot(seq(1,10000), unlist(func_test))
 ```
+
+On to the main event. Now we need to add in our first steady state solution to serve as the t = 0 boundary of our model!
+
 ```{r}
 isotope_model_data <- isotope_model_data %>%
   add_column(isotope_space = NA)
 isotope_model_data$isotope_space[1] = list(steady_state_solution)
 isotope_model_data
 ```
+
+Looks good. Now we use the diffusion function to fill out the rest of the isotope_space column using the end of previous step as the starting value.
+
 ```{r}
 interator = length(isotope_model_data$isotope_space) - 1
 system.time(
@@ -123,11 +148,45 @@ for (i in 1:interator) {
   isotope_model_data$isotope_space[i+1] = isotope_vapor_diff(isotope_model_data$isotope_space[i], isotope_model_data$snow_value[i], isotope_model_data$air_value[i])
 }
 )
+isotope_model_data
 ```
+
+This is how we might look at a single solution. In this case, hour 4.
+
 ```{r}
-length(unlist(isotope_model_data$isotope_space[241]))
-temp <- out[20,]
-plot(seq(1,10000), temp[-1])
+sample_from_isotope_tibble <- unlist(isotope_model_data$isotope_space[4])
+plot(seq(1,10000), sample_from_isotope_tibble)
 ```
 
+At each time, we can look at the isotope value at different parts of the space as a rough approximation of what value the snow would see if the VSL was that thick.
 
+**Exercise 3:** Add to the tibble four new columns for the value at four different heights of your choosing. Is your result linear with respect to VSL height? How could you tell?
+
+```{r}
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.2m = unlist(isotope_space)[8000])
+
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.4m = unlist(isotope_space)[6000])
+
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.6m = unlist(isotope_space)[4000])
+
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.8m = unlist(isotope_space)[2000])
+
+isotope_model_data
+```
+
+```{r, fig.width=10, fig.height=5, dpi = 300}
+diff_heights <- isotope_model_data %>%
+  ggplot(aes(x = time)) + 
+  geom_line(aes(y = value_.2m), lwd = 2) + 
+  geom_line(aes(y = value_.4m), color="blue", lwd = 2) +
+  geom_line(aes(y = value_.6m), color="green", lwd = 2) + 
+  geom_line(aes(y = value_.8m), color="cyan", lwd = 2) + 
+  theme(text = element_text(size = 20))
+diff_heights
+```
+
+This seems roughly linearly attenuated based on VSL thickness! 
