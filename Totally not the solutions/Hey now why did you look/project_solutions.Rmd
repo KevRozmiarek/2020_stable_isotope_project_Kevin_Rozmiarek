@@ -31,7 +31,9 @@ $$
 **Exercise 1:** Go ahead and make a function called "dirurnal_isotope" as a function of A, B, C, and t. Then lets do a sanity check by plotting it in a tibble called "isotope_model_data". Go ahead and use the values from the 26th-29th of June from the paper for $$\delta^{18}O$$ which so happens to be $$A_{best} = -43.9, B_{best} = 3.3, C_{best} = 14.4$$. 
 
 ```{r}
-diurnal_isotope <- #your function here
+diurnal_isotope <- function(A, B, C, t) {
+   isotope <- A + B*sin((2*pi*t)/24 + C)
+   return(isotope)
 }
 ```
 
@@ -126,7 +128,8 @@ isotope_vapor_diff = function(starting_values, snow_value, atmos_value) {
 **Note:** Remember that the function returns a list. You can unpack that bad boy with a statement that looks like "unlist(your_list_here)".
 
 ```{r}
-#Your answer here!
+func_test <- isotope_vapor_diff(steady_state_solution, -45, -40)
+plot(seq(1,10000), unlist(func_test))
 ```
 
 On to the main event. Now we need to add in our first steady state solution to serve as the t = 0 boundary of our model!
@@ -165,9 +168,31 @@ At each time, we can look at the isotope value at different parts of the space a
 
 ```{r}
 isotope_model_data <- isotope_model_data %>% rowwise() %>%
-  #your mutate here!
+  mutate(value_.2m = unlist(isotope_space)[8000])
+
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.4m = unlist(isotope_space)[6000])
+
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.6m = unlist(isotope_space)[4000])
+
+isotope_model_data <- isotope_model_data %>% rowwise() %>%
+  mutate(value_.8m = unlist(isotope_space)[2000])
+
+isotope_model_data
 ```
 
 ```{r, fig.width=10, fig.height=5, dpi = 300}
-#your plot here!
+diff_heights <- isotope_model_data %>%
+  ggplot(aes(x = time)) + 
+  geom_line(aes(y = value_.2m), lwd = 2) + 
+  geom_line(aes(y = value_.4m), color="blue", lwd = 2) +
+  geom_line(aes(y = value_.6m), color="green", lwd = 2) + 
+  geom_line(aes(y = value_.8m), color="cyan", lwd = 2) + 
+  theme(text = element_text(size = 20)) + 
+  xlab("Time(hr)") + 
+  ylab("d18O")
+diff_heights
 ```
+
+This seems roughly linearly attenuated based on VSL thickness! 
